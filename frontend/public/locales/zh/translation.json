@@ -6543,7 +6543,8 @@
     "secretSavedPlaceholder": "已保存 · {{preview}}（重新输入可替换）",
     "pages": {
       "models": "模型与渠道",
-      "storage": "媒体存储"
+      "storage": "媒体存储",
+      "backup": "备份与恢复"
     },
     "modelConfig": {
       "title": "模型配置",
@@ -6906,6 +6907,23 @@
         "endpoint": "Endpoint / 地域",
         "ttlSeconds": "签名有效期（秒）"
       }
+    },
+    "backup": {
+      "title": "配置备份与恢复",
+      "badge": "导出 / 导入",
+      "description": "把当前全部运行配置（模型网关、渠道、媒体存储等）导出为 JSON 备份，或在全新安装 / 另一台机器上导入恢复。",
+      "exportButton": "导出配置",
+      "importButton": "导入配置",
+      "exportSuccess": "配置已导出",
+      "exportFailed": "导出失败",
+      "importConfirmTitle": "导入配置备份",
+      "importConfirm": "即将导入「{{name}}」，共 {{count}} 项设置，将覆盖同名配置。继续？",
+      "importConfirmAction": "导入并覆盖",
+      "importSuccess": "已导入 {{count}} 项设置",
+      "importFailed": "导入失败",
+      "invalidJson": "文件不是有效的 JSON",
+      "invalidBundle": "文件缺少 settings 字段，不是有效的配置备份",
+      "hint": "备份包含库中已保存的密钥；若某密钥在数据库中已是掩码（**********），则无法通过备份恢复。"
     },
     "codexBridge": {
       "title": "Codex 本地桥接",

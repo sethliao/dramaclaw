@@ -191,6 +191,32 @@ def set_model_gateway_mode(mode: str) -> None:
     _write_many({"model_gateway_mode": normalize_gateway_mode(mode)})
 
 
+def export_runtime_settings() -> dict[str, str]:
+    """Return a snapshot of all CE runtime settings (for backup/export).
+
+    Values are returned exactly as stored; secrets that were masked at rest
+    (e.g. ``**********``) stay masked.
+    """
+    return dict(_read_all())
+
+
+def import_runtime_settings(values: dict[str, Any]) -> dict[str, str]:
+    """Upsert the given key/value map into runtime_settings.
+
+    Keys are trimmed and coerced to str; blank keys are skipped. Existing keys
+    not present in ``values`` are left untouched (merge semantics, so a
+    full export round-trip restores a complete state). Returns the new state.
+    """
+    cleaned: dict[str, str] = {}
+    for key, value in values.items():
+        if not isinstance(key, str) or not key.strip():
+            continue
+        cleaned[key.strip()] = str(value if value is not None else "")
+    _write_many(cleaned)
+    return dict(_read_all())
+
+
+
 def save_official_newapi_key(
     *,
     api_key: str,

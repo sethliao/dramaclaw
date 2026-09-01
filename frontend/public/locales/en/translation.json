@@ -6543,7 +6543,8 @@
     "secretSavedPlaceholder": "Saved · {{preview}} (enter a new value to replace)",
     "pages": {
       "models": "Models & Channels",
-      "storage": "Media Storage"
+      "storage": "Media Storage",
+      "backup": "Backup & Restore"
     },
     "modelConfig": {
       "title": "Model Config",
@@ -6906,6 +6907,23 @@
         "endpoint": "Endpoint / Region",
         "ttlSeconds": "Signed URL TTL (seconds)"
       }
+    },
+    "backup": {
+      "title": "Configuration Backup & Restore",
+      "badge": "Export / Import",
+      "description": "Export the full runtime configuration (model gateway, channels, media storage, ...) as a JSON backup, or import one to restore setup on a fresh install / another machine.",
+      "exportButton": "Export config",
+      "importButton": "Import config",
+      "exportSuccess": "Configuration exported",
+      "exportFailed": "Export failed",
+      "importConfirmTitle": "Import configuration backup",
+      "importConfirm": "This will import \"{{name}}\" ({{count}} settings) and overwrite matching keys. Continue?",
+      "importConfirmAction": "Import & overwrite",
+      "importSuccess": "Imported {{count}} settings",
+      "importFailed": "Import failed",
+      "invalidJson": "File is not valid JSON",
+      "invalidBundle": "File has no \"settings\" field — not a valid config backup",
+      "hint": "The backup includes saved keys as stored in the database. Keys already masked (**********) at rest cannot be recovered from a backup."
     },
     "codexBridge": {
       "title": "Codex Local Bridge",
