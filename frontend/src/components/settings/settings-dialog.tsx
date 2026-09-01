@@ -18,6 +18,7 @@ import {
   Pencil,
   Plus,
   RotateCw,
+  Save,
   Search,
   Trash2,
 } from "lucide-react";
@@ -91,6 +92,7 @@ import {
   type MediaModelEntry,
   type MediaStorageProvider,
 } from "@/stores/settingsStore";
+import { ConfigBackupSection } from "@/components/settings/config-backup-section";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -110,7 +112,7 @@ const COMFY_WORKFLOW_MANAGED_CONFIG_KEY = "_dcManagedByWorkflow";
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { t } = useTranslation();
-  const [page, setPage] = useState<"models" | "storage">("models");
+  const [page, setPage] = useState<"models" | "storage" | "backup">("models");
   const [modelConfigApplying, setModelConfigApplying] = useState(false);
   const statusQuery = useModelGatewayConfig(open);
   const settingsStatus = statusQuery.data?.data;
@@ -202,6 +204,23 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </span>
               {pageStatus(mediaStorageConfigured, t("settings.pages.storage"))}
             </button>
+            <button
+              type="button"
+              aria-current={page === "backup" ? "page" : undefined}
+              onClick={() => setPage("backup")}
+              disabled={modelConfigApplying}
+              className={cn(
+                "relative flex h-10 items-center justify-center gap-2 rounded-md px-2 text-sm font-medium transition-colors sm:justify-start sm:px-3",
+                page === "backup"
+                  ? "bg-white/[0.09] text-foreground"
+                  : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+              )}
+            >
+              <Save className="size-4" aria-hidden />
+              <span className="hidden sm:inline">
+                {t("settings.pages.backup")}
+              </span>
+            </button>
           </nav>
 
           {page === "models" ? (
@@ -215,10 +234,16 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 {SHOW_CODEX_BRIDGE && <CodexBridgeSection />}
               </ScrollArea>
             </div>
-          ) : (
+          ) : page === "storage" ? (
             <div className="min-w-0 flex-1">
               <ScrollArea className="h-full [&_[data-slot=scroll-area-scrollbar]]:!w-1 [&_[data-slot=scroll-area-scrollbar]]:!border-l-0 [&_[data-slot=scroll-area-scrollbar]]:!p-0">
                 <MediaStorageSection />
+              </ScrollArea>
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1">
+              <ScrollArea className="h-full [&_[data-slot=scroll-area-scrollbar]]:!w-1 [&_[data-slot=scroll-area-scrollbar]]:!border-l-0 [&_[data-slot=scroll-area-scrollbar]]:!p-0">
+                <ConfigBackupSection />
               </ScrollArea>
             </div>
           )}
