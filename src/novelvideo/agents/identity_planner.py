@@ -927,6 +927,11 @@ class IdentityPlanner:
 - 同时输出 age_group
   - 如果 visual_state 明确是年龄阶段，请填写对应 age_group
   - 如果只是同龄造型分支，可留空
+- **输出格式（重要）**：输出 JSON，顶层字段必须为 `defaults`（数组）。数组每个对象必须包含：
+  - `character_name`: 角色主名
+  - `visual_state`: 默认身份名称
+  - `age_group`: `"child"`/`"youth"`/`"middle"`/`"elder"`（年龄阶段必填，否则空字符串）
+  - `reason`: 一句话原因
 """
         try:
             agent = Agent(
@@ -1007,6 +1012,12 @@ class IdentityPlanner:
   - 年龄变体必须填写对应 age_group
   - 普通同龄造型分支可留空
 - 如果没有其他身份需求，返回空列表
+- **输出格式（重要）**：输出 JSON，顶层字段必须为 `requirements`（数组）。数组每个对象必须包含：
+  - `character_name`: 角色主名
+  - `visual_state`: 身份/时期/造型名称
+  - `age_group`: `"child"`/`"youth"`/`"middle"`/`"elder"`（年龄变体必填，否则空字符串）
+  - `reason`: 一句话原因
+
 """
         try:
             agent = Agent(

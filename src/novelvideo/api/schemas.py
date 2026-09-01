@@ -225,7 +225,7 @@ class GlobalOptimizeRequest(BaseModel):
 
 class VideoGenerateRequest(BaseModel):
     resolution: str = "720x1280"
-    video_backend: str = "newapi_seedance-1.0-pro-fast"
+    video_backend: str = "newapi_glabs-omni-flash"
     use_director_render: bool = False
 
 
@@ -347,7 +347,7 @@ class InsertManualShotRequest(BaseModel):
 
 class SingleVideoRequest(BaseModel):
     resolution: str = "720x1280"
-    video_backend: str = "newapi_seedance-1.0-pro-fast"
+    video_backend: str = "newapi_glabs-omni-flash"
     use_director_render: bool = False
     seedance2_config_json: Optional[str] = None
     mode: Optional[str] = None
@@ -361,6 +361,7 @@ class SingleVideoRequest(BaseModel):
     audio_setting: Optional[str] = None
     prompt_guidance: Optional[str] = None
     text_overlay: Optional[dict[str, Any]] = None
+    use_sketch_references: bool = False
 
 
 # ── 风格 ──────────────────────────────────────────────────────────────────────

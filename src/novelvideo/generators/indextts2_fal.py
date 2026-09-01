@@ -181,6 +181,15 @@ class IndexTTS2FalClient:
     ) -> TTSResult:
         """Generate dialogue audio from a reference sample and save it to ``output_path``."""
         context = self.egress_context
+        local_newapi = (
+            self.provider == "newapi"
+            and str(self.endpoint or "").startswith(
+                ("http://127.0.0.1", "http://localhost", "http://[::1]")
+            )
+        )
+        if local_newapi:
+            # 本地网关（drama-gateway）无需组织 egress/计费闸门（2026-08-31）
+            context = None
         if context is not None and (
             type(context) is not TrustedEgressContext or not context.is_organization
         ):

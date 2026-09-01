@@ -851,6 +851,44 @@ def _missing_video_prompt_error(beat_num: int) -> str:
     return f"Beat {beat_num} 缺少视频提示词，请先点击“生成本 Beat 提示词”。"
 
 
+def _build_beat_component_references(
+    paths: PathResolver,
+    beat: dict[str, Any],
+    beat_num: int,
+    output_dir: str,
+) -> list[dict[str, str]]:
+    """组件模式参考图（Omni ingredients）：主角肖像 + 场景 master。
+
+    顺序即 ingredient 优先级：角色身份 → 场景环境。**绝不放草图**——
+    草图会变成画面锚点（看起来像首帧锁定），Seth 明确要求不用首帧。
+    """
+    refs: list[dict[str, str]] = []
+    # 场景 master 放第一位：环境锚点优先，防止 shot 环境漂移（Seth 2026-09-01：
+    # beat3 环境整个变了——没有街道没有红灯笼）
+    scene_ref = beat.get("scene_ref")
+    if isinstance(scene_ref, dict):
+        # SceneRef 字段是 scene_id（不是 name）——2026-09-01 修：之前读 name 永远拿不到
+        scene_name = str(
+            scene_ref.get("scene_id") or scene_ref.get("name") or ""
+        ).strip()
+        if scene_name:
+            master = Path(output_dir) / "assets" / "scenes" / scene_name / "master.png"
+            if master.exists():
+                refs.append({"type": "image", "path": str(master), "role": "scene"})
+    # 所有出场角色肖像都作为参考（不要只发第一个——多角色 beat 只约束一个
+    # 角色，其余会被模型自由发挥成错角色/真人小孩）。上限 6 张防超参。
+    for ident in beat.get("detected_identities") or []:
+        name = str(ident).rsplit("_", 1)[0].strip()
+        if not name:
+            continue
+        portrait = Path(output_dir) / "assets" / "characters" / name / "portrait.png"
+        if portrait.exists():
+            refs.append({"type": "image", "path": str(portrait), "role": "character"})
+            if len(refs) >= 6:
+                break
+    return refs
+
+
 SEEDANCE2_SINGLE_VIDEO_CONFIG_FIELDS = {
     "mode",
     "duration",
@@ -4669,7 +4707,11 @@ async def generate_single_video(
         beat_num,
         use_director_render=bool(body.use_director_render),
     )
-    if not frame_path.exists():
+    # 组件模式（Omni ingredients）：草图+角色参考，不依赖首帧
+    wants_components = body.use_sketch_references or beat.get("video_mode") == "components"
+    component_references: list[dict[str, str]] = []
+    component_ratio: str = ""
+    if not wants_components and not frame_path.exists():
         return {"ok": False, "error": f"Beat {beat_num} 首帧不存在，请先生成预览"}
 
     # 视频模式与提示词
@@ -4839,6 +4881,21 @@ async def generate_single_video(
     else:
         if not prompt.strip():
             return {"ok": False, "error": _missing_video_prompt_error(beat_num)}
+        # 组件模式（Omni ingredients）：草图 + 角色肖像 + 场景 master，不依赖首帧
+        if wants_components:
+            refs = _build_beat_component_references(paths, beat, beat_num, output_dir)
+            if refs:
+                frame_path = None
+                video_mode = "components"
+                component_references = refs
+                # 画幅跟随项目配置（Seth 要求横屏 16:9；frame_path=None 时
+                # _resolve_video_aspect_ratio 会回退 9:16，必须显式给 ratio）
+                from novelvideo.project_config import load_project_config_file_from_state_dir
+
+                _pcfg = load_project_config_file_from_state_dir(resolved.state_dir)
+                component_ratio = str(
+                    _pcfg.get("aspect_ratio") or "16:9"
+                ).strip()
         # 非 seedance2 后端（含 seedance-1.5-pro）：透传用户选择的时长/清晰度，
         # 并保证视频时长不短于音频（与 1.0 的 duration_floor 行为一致；
         # 生成器侧再按模型上限 4-12 夹紧并向上取整）。
@@ -4886,6 +4943,10 @@ async def generate_single_video(
     if is_grok_video:
         config["ratio"] = _grok_video_ratio_for_backend(grok_video_ratio)
         config["references"] = grok_video_references
+    if component_references:
+        config["references"] = component_references
+    if component_ratio:
+        config["ratio"] = component_ratio
 
     billing_resolution = single_video_resolution or _seedance2_resolution_for_backend(
         body.video_backend,

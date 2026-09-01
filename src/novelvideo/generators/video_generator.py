@@ -2157,6 +2157,34 @@ class NewApiVideoGenerator(VideoGeneratorBase):
         media_value = str(media_value or "").strip()
         if not media_value:
             raise ValueError("empty media input")
+        import os as _os
+        import time as _time
+
+        if _os.environ.get("GATEWAY_LOCAL_RELAY", "0") == "1":
+            # 本地网关直连（drama-gateway）：跳过 Cloudinary/OSS 云中继，
+            # 返回本地路径/原样 http，gateway /v1/videos 接受同机 {"path": ...}。
+            if media_value.startswith(("http://", "https://")):
+                return media_value
+            if media_value.startswith("data:"):
+                import base64 as _b64
+
+                header, _, encoded = media_value.partition(",")
+                data = _b64.b64decode(encoded) if ";base64" in header else b""
+                refs_dir = (
+                    Path(
+                        _os.environ.get(
+                            "GATEWAY_MEDIA_DIR", "~/.hermes/drama-gateway/media"
+                        )
+                    ).expanduser()
+                    / "refs"
+                )
+                refs_dir.mkdir(parents=True, exist_ok=True)
+                ext = cls._ext_from_data_url_header(header, default_ext)
+                p = refs_dir / f"ref_{int(_time.time() * 1000)}.{ext}"
+                p.write_bytes(data)
+                return str(p)
+            return media_value
+
         if media_value.startswith(("http://", "https://")):
             return media_value
 
@@ -4361,6 +4389,7 @@ class ComfyUIVideoGenerator(VideoGeneratorBase):
 
 NEWAPI_VIDEO_BACKEND_PREFIX = "newapi_"
 NEWAPI_VIDEO_DISPLAY_LABELS = {
+    "glabs-omni-flash": "Google Flow Omni Flash (G-Labs)",
     "seedance-1.0-pro-fast": "Seedance1.0 Pro Fast",
     "seedance-1.5-pro": "Seedance1.5 Pro",
     "seedance-2.0": "Seedance2.0",

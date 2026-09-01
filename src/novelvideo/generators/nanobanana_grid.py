@@ -1271,7 +1271,19 @@ def get_sketch_nxn_modes(
     aspect_ratio: str = DEFAULT_SKETCH_ASPECT_RATIO,
 ) -> list[tuple[int, str, int, int]]:
     result: list[tuple[int, str, int, int]] = []
-    for cap, rows, cols in [(1, 1, 1), (4, 2, 2), (9, 3, 3), (16, 4, 4), (25, 5, 5)]:
+    # 正方形 + 常用非正方形（6 beats → 2x3 精确装下，避免 3x3 浪费 3 格）。
+    # 只列存在 _sketch 模式的形状，否则 get_sketch_nxn_modes 会 raise。
+    for cap, rows, cols in [
+        (1, 1, 1),
+        (2, 1, 2),
+        (4, 2, 2),
+        (6, 2, 3),
+        (8, 2, 4),
+        (9, 3, 3),
+        (12, 4, 3),
+        (16, 4, 4),
+        (25, 5, 5),
+    ]:
         matches = [
             mode_key
             for mode_key, cfg in REGEN_MODE_CONFIGS.items()
@@ -4145,6 +4157,30 @@ async def _relay_reference_images_for_newapi(
         return urls
 
     def upload_all() -> list[str]:
+        import os as _os
+        import time as _time
+
+        if _os.environ.get("GATEWAY_LOCAL_RELAY", "0") == "1":
+            # 本地网关直连（drama-gateway 127.0.0.1:8790）：
+            # 跳过 Cloudinary/OSS 云中继，把参考图字节写到 gateway media 目录，
+            # 返回本地路径。gateway /v1/images 接受同机 {"path": ...} 引用。
+            refs_dir = (
+                Path(
+                    _os.environ.get(
+                        "GATEWAY_MEDIA_DIR", "~/.hermes/drama-gateway/media"
+                    )
+                ).expanduser()
+                / "refs"
+            )
+            refs_dir.mkdir(parents=True, exist_ok=True)
+            out: list[str] = []
+            for i, image_ref in enumerate(reference_images):
+                data = _reference_image_bytes(image_ref)
+                p = refs_dir / f"ref_{int(_time.time() * 1000)}_{i}.{_image_ext(image_ref)}"
+                p.write_bytes(data)
+                out.append(str(p))
+            return out
+
         urls: list[str] = []
         relay_ttl = media_relay_ttl_seconds(
             minimum=NEWAPI_MEDIA_INPUT_MIN_TTL_SECONDS,
