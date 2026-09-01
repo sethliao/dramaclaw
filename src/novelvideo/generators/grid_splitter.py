@@ -255,6 +255,89 @@ def remove_grid_gaps(
     return result
 
 
+def _find_global_gutters(
+    gray: np.ndarray,
+    axis: int,
+    n_gaps: int,
+    brightness_threshold: int = 200,
+    min_gap_width: int = 2,
+) -> list[tuple[int, int]]:
+    """全局扫描找真实 gutter（不假设等分位置）。
+
+    AI 生成的网格面板常常不均匀，等分裁剪会切进相邻 panel（画面串台）。
+    此函数扫整条轴，找亮度最高、彼此分离的 n_gaps 条亮带作为真实分界线。
+
+    Args:
+        gray: 灰度 numpy 数组
+        axis: 0=水平 gutter(沿 y), 1=竖直 gutter(沿 x)
+        n_gaps: 需要的 gutter 条数（cols-1 或 rows-1）
+        brightness_threshold: 高于此平均亮度视为候选亮带
+        min_gap_width: 最小 gap 宽度（像素）
+
+    Returns:
+        排序后的 [(gap_start, gap_end), ...]；找不到足够 gap 时返回空
+    """
+    if n_gaps <= 0:
+        return []
+    if axis == 1:  # 竖直线：每列沿行取平均
+        brightness = np.mean(gray, axis=0)
+    else:  # 水平线：每行沿列取平均
+        brightness = np.mean(gray, axis=1)
+
+    # 候选亮带（连续性）
+    is_bright = brightness >= brightness_threshold
+    regions: list[tuple[int, int]] = []
+    start = None
+    for i, b in enumerate(is_bright):
+        if b and start is None:
+            start = i
+        elif not b and start is not None:
+            regions.append((start, i))
+            start = None
+    if start is not None:
+        regions.append((start, len(is_bright)))
+    regions = [r for r in regions if r[1] - r[0] >= min_gap_width]
+    if not regions:
+        return []
+    # 排除贴边区域（外边框不是内部 gutter）
+    margin = max(int(len(brightness) * 0.06), 8)
+    regions = [r for r in regions if r[0] >= margin and r[1] <= len(brightness) - margin]
+    if not regions:
+        return []
+
+    # 若无足够亮带，退回低方差区域（纯色 gutter）
+    if len(regions) < n_gaps:
+        variance = np.var(gray.astype(float), axis=1 if axis == 0 else 0)
+        candidates = []
+        for i in range(1, len(variance) - 1):
+            if variance[i] < 50 and variance[i] == min(variance[max(0, i - 5): i + 6]):
+                candidates.append((i, i + 1))
+        regions = [r for r in candidates if r[1] - r[0] >= min_gap_width]
+
+    # 贪心选 n_gaps 条：按亮度降序，跳过与已选重叠/太近的
+    centers = [(r[0] + r[1]) / 2 for r in regions]
+    order = sorted(range(len(regions)), key=lambda i: -(brightness[regions[i][0]:regions[i][1]].mean() if regions[i][1] > regions[i][0] else 0))
+    chosen: list[int] = []
+    min_sep = 40  # 两条 gutter 最小间距（防把同一条 split 成两条）
+    for i in order:
+        if all(abs(centers[i] - centers[j]) >= min_sep for j in chosen):
+            chosen.append(i)
+        if len(chosen) >= n_gaps:
+            break
+
+    chosen.sort(key=lambda i: centers[i])
+    return [regions[i] for i in chosen]
+
+
+def _cut_positions_from_gutters(gutters: list[tuple[int, int]], size: int) -> list[int]:
+    """gutter 中心 → 裁剪边界（含 0 和 size）。"""
+    pos = [0]
+    for g in gutters:
+        pos.append((g[0] + g[1]) // 2)
+    pos.append(size)
+    return pos
+
+
 def split_grid(
     grid_image: Union[bytes, str, Path],
     output_dir: Union[str, Path],
@@ -308,9 +391,25 @@ def split_grid(
     width, height = img.size
     print(f"[GridSplitter] 网格图尺寸: {width}x{height}")
 
-    # 计算每个格子的尺寸
-    cell_width = width // cols
-    cell_height = height // rows
+    # 检测真实 gutter（AI 网格不均匀时等分会切进相邻 panel → 画面串台）
+    try:
+        gray_g = np.array(img.convert("L"))
+        v_gutters = _find_global_gutters(gray_g, axis=1, n_gaps=cols - 1)
+        h_gutters = _find_global_gutters(gray_g, axis=0, n_gaps=rows - 1)
+        x_pos = _cut_positions_from_gutters(v_gutters, width)
+        y_pos = _cut_positions_from_gutters(h_gutters, height)
+        if len(x_pos) != cols + 1 or len(y_pos) != rows + 1:
+            x_pos = [c * width // cols for c in range(cols + 1)]
+            y_pos = [r * height // rows for r in range(rows + 1)]
+        print(f"[GridSplitter] 检测到 gutter: v={len(v_gutters)} h={len(h_gutters)} → 裁剪 x={x_pos} y={y_pos}")
+    except Exception as e:
+        print(f"[GridSplitter] Gutter 检测失败，用等分: {e}")
+        x_pos = [c * width // cols for c in range(cols + 1)]
+        y_pos = [r * height // rows for r in range(rows + 1)]
+
+    # 计算每个格子的尺寸（用检测到的边界）
+    cell_width = min(x_pos[i + 1] - x_pos[i] for i in range(cols))
+    cell_height = min(y_pos[i + 1] - y_pos[i] for i in range(rows))
     print(f"[GridSplitter] 分镜尺寸: {cell_width}x{cell_height}, 网格: {rows}x{cols}")
 
     # 确保输出目录存在
@@ -323,11 +422,11 @@ def split_grid(
         for col in range(cols):
             beat_num = row * cols + col + 1
 
-            # 计算裁剪区域
-            left = col * cell_width
-            upper = row * cell_height
-            right = left + cell_width
-            lower = upper + cell_height
+            # 计算裁剪区域（真实 gutter 边界）
+            left = x_pos[col]
+            upper = y_pos[row]
+            right = x_pos[col + 1]
+            lower = y_pos[row + 1]
 
             # 裁剪
             cell = img.crop((left, upper, right, lower))
