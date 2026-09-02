@@ -12,6 +12,10 @@
 import re
 from typing import Optional, Callable, TYPE_CHECKING
 
+import logging
+
+logger = logging.getLogger("novelvideo.agents.identity_planner")
+
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from pydantic_ai import Agent
@@ -381,7 +385,11 @@ class IdentityPlanner:
         visual_state: str,
         age_group: str = "",
     ) -> tuple[str, str]:
-        """使用 AI 输出的 age_group，并做最小必要的一致性校验。"""
+        """使用 AI 输出的 age_group，并做最小必要的一致性校验。
+
+        冲突时不抛错：视觉状态名（如「孩童时期」→ child）比 LLM 的 age_group
+        更可靠（跨集一致性），优先用视觉状态推断值并记警告。
+        """
         normalized_age_group = _normalize_age_group_value(age_group)
         inferred_age_group = self._infer_age_group_from_visual_state(visual_state)
         if (
@@ -389,9 +397,14 @@ class IdentityPlanner:
             and normalized_age_group
             and inferred_age_group != normalized_age_group
         ):
-            raise ValueError(
-                f"身份 `{visual_state}` 的 age_group 冲突: AI={normalized_age_group}, 名称推断={inferred_age_group}"
+            logger.warning(
+                "身份 `%s` age_group 冲突: AI=%s, 名称推断=%s —— 使用名称推断 %s",
+                visual_state,
+                normalized_age_group,
+                inferred_age_group,
+                inferred_age_group,
             )
+            normalized_age_group = inferred_age_group
         final_age_group = normalized_age_group or inferred_age_group
         if not inferred_age_group and final_age_group == getattr(char, "age_group", ""):
             final_age_group = ""
