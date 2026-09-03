@@ -8,6 +8,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { toast } from "sonner";
 
 import {
+  isComponentsVideoBackend,
   shouldDisableDialogueOnlyBackendForBeat,
   VideoPane,
 } from "@/components/episode/beat-workbench/video-pane";
@@ -148,6 +149,9 @@ beforeAll(async () => {
                 beatVideoPromptGenerateFailed: "本 Beat 视频提示词生成失败",
                 beatVideoPromptRequired:
                   "Beat #{{n}} 缺少视频提示词，请先点击“生成本 Beat 提示词”。",
+                componentsReferenceMode: "角色+场景参考（无需首帧）",
+                componentsReferencesRequired:
+                  "Beat #{{n}} 缺少角色肖像或场景 master 参考图。",
                 seedance2PromptRequired:
                   "Beat #{{n}} 缺少 Seedance2.0主体提示词，请先填写或点击“AI 优化”。",
                 seedance2OverlayEnabled: "启用",
@@ -225,6 +229,15 @@ vi.mock("@/lib/queries/video", () => ({
           dialogue_only: false,
           min_duration: 4,
           max_duration: 12,
+        },
+        {
+          value: "newapi_glabs-omni-flash",
+          label: "Google Flow Omni Flash",
+          is_default: false,
+          is_seedance2: false,
+          dialogue_only: false,
+          min_duration: 4,
+          max_duration: 10,
         },
         {
           value: "newapi_seedance-1.5-pro",
@@ -875,6 +888,65 @@ describe("VideoPane Seedance2 inspector", () => {
     expect(screen.getByText("Seedance2 Inspector")).toBeInTheDocument();
     expect(screen.queryByLabelText("视频提示词")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("单个 Beat 视频提示词")).not.toBeInTheDocument();
+  });
+
+  it("detects Omni Flash as a components-reference backend", () => {
+    expect(isComponentsVideoBackend("newapi_glabs-omni-flash")).toBe(true);
+    expect(isComponentsVideoBackend("newapi_seedance-1.0-pro-fast")).toBe(false);
+  });
+
+  it("submits Omni Flash video generation with component references and no first frame", async () => {
+    const user = userEvent.setup();
+    videoQueryMockState.seedance2AssetsOverride = [
+      {
+        key: "identity:陆辰_青年时期",
+        label: "陆辰 · 青年时期",
+        media_type: "image",
+        selected: true,
+        exists: true,
+        reference_label: "图片1",
+        note: "角色身份图",
+        path: "assets/characters/陆辰/portrait.png",
+        url: "/static/demo/assets/characters/陆辰/portrait.png",
+        can_crop: false,
+        can_delete: false,
+      },
+      {
+        key: "scene:Forest",
+        label: "场景锚点 · Forest",
+        media_type: "image",
+        selected: true,
+        exists: true,
+        reference_label: "图片2",
+        note: "场景 master",
+        path: "assets/scenes/Forest/master.png",
+        url: "/static/demo/assets/scenes/Forest/master.png",
+        can_crop: false,
+        can_delete: false,
+      },
+    ];
+    renderPane(
+      makeBeat({
+        video_url: null,
+        frame_url: null,
+        video_mode: "first_frame",
+        video_prompt: "motion prompt for omni flash",
+      }),
+      { defaultBackend: "newapi_glabs-omni-flash" },
+    );
+
+    expect(screen.getByText(/角色\+场景参考/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "生成视频" }));
+    await user.click(screen.getByRole("button", { name: "确认" }));
+
+    expect(regenerateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        beatNum: 1,
+        videoBackend: "newapi_glabs-omni-flash",
+        use_sketch_references: true,
+      }),
+    );
+    videoQueryMockState.seedance2AssetsOverride = null;
   });
 
   it("blocks 1.x video generation when the beat video prompt is empty", async () => {

@@ -375,13 +375,15 @@ export function VideoPane({
   const showSeedance2Config = selectedBackend?.is_seedance2 === true;
   const showHappyHorseConfig = selectedBackend?.is_happyhorse === true;
   const showGrokVideoConfig = selectedBackend?.is_grok_video === true;
+  const showComponentsReferenceMode = isComponentsVideoBackend(defaultBackend);
   const showPromptConfig =
     showSeedance2Config || showHappyHorseConfig || showGrokVideoConfig;
   const showReferenceDetails =
     showSeedance2Config ||
     showHappyHorseConfig ||
     showGrokVideoConfig ||
-    isSeedanceReferenceCropBackend(defaultBackend);
+    isSeedanceReferenceCropBackend(defaultBackend) ||
+    showComponentsReferenceMode;
   const legacyPromptField: "video_prompt" | "keyframe_prompt" =
     beat.video_mode === "keyframe" ? "keyframe_prompt" : "video_prompt";
   const legacyPromptLabel =
@@ -489,6 +491,9 @@ export function VideoPane({
     episode,
     beat.beat_number,
     showReferenceDetails,
+    showComponentsReferenceMode
+      ? { referenceMode: "multimodal_reference" }
+      : {},
   );
   const seedance2StatusData =
     seedance2Status.data?.ok === true ? seedance2Status.data.data : null;
@@ -511,9 +516,32 @@ export function VideoPane({
       if (showSeedance2Config || showHappyHorseConfig || showGrokVideoConfig) {
         return imageAssets;
       }
+      if (showComponentsReferenceMode) {
+        return imageAssets.filter(
+          (asset) =>
+            asset.key.startsWith("identity:") ||
+            asset.key.startsWith("scene:") ||
+            asset.key.startsWith("prop:"),
+        );
+      }
       return imageAssets.filter((asset) => asset.key === "first_frame");
     },
-    [seedance2AssetItems, showGrokVideoConfig, showHappyHorseConfig, showSeedance2Config],
+    [
+      seedance2AssetItems,
+      showGrokVideoConfig,
+      showHappyHorseConfig,
+      showSeedance2Config,
+      showComponentsReferenceMode,
+    ],
+  );
+  const componentsReferenceReady = useMemo(
+    () =>
+      !showComponentsReferenceMode ||
+      referenceCropImageItems.some(
+        (asset) =>
+          asset.key.startsWith("identity:") || asset.key.startsWith("scene:"),
+      ),
+    [referenceCropImageItems, showComponentsReferenceMode],
   );
   const seedance2ReferenceOptions = useMemo(
     () =>
@@ -740,6 +768,14 @@ export function VideoPane({
       );
       return false;
     }
+    if (showComponentsReferenceMode && !componentsReferenceReady) {
+      toast.error(
+        t("episode.workbench.video.componentsReferencesRequired", {
+          n: beat.beat_number,
+        }),
+      );
+      return false;
+    }
     return true;
   };
   const openRegenConfirm = () => {
@@ -816,6 +852,7 @@ export function VideoPane({
       const res = await regenerate.mutateAsync({
         beatNum: beat.beat_number,
         videoBackend: defaultBackend,
+        ...(showComponentsReferenceMode ? { use_sketch_references: true } : {}),
         ...(showHappyHorseConfig && happyHorseDraft
           ? {
               resolution: happyHorseDraft.resolution,
@@ -1803,6 +1840,11 @@ export function VideoPane({
             <span className="inline-flex h-5 items-center rounded-full border border-white/[0.075] bg-white/[0.025] px-2 text-[11px] leading-none text-muted-foreground/78">
               {referenceCropImageItems.length}
             </span>
+            {showComponentsReferenceMode && (
+              <span className="text-[11px] text-muted-foreground/72">
+                {t("episode.workbench.video.componentsReferenceMode")}
+              </span>
+            )}
           </div>
           {seedance2ReferencesOpen && (
             <div className="border-t border-white/[0.055] p-3">
@@ -3138,6 +3180,11 @@ function isSeedanceReferenceCropBackend(value: string | null | undefined): boole
     model === "seedance_1.0_pro_fast" ||
     isSeedance15ProBackend(value)
   );
+}
+
+/** G-Labs Omni Flash: character portrait + scene master ingredients, no first frame. */
+export function isComponentsVideoBackend(value: string | null | undefined): boolean {
+  return seedance2ModelFromBackend(value) === "glabs-omni-flash";
 }
 
 function seedance2DefaultRatioForProjectAspect(

@@ -1,0 +1,18 @@
+---
+description: Vibe mode handoff rules — read cards, plan first, don't push
+globs: ["**/*"]
+alwaysApply: true
+---
+# Vibe Mode (Hermes ↔ Cursor handoff)
+
+- **Read the card first**: task briefs arrive at `handover/cards/v<N>.md`. Read the
+  latest card before doing anything — it names files, scope, and verify commands.
+- **Plan before build**: for anything beyond a quick change, use Plan Mode
+  (Shift+Tab), present the plan, wait for approval.
+- **Follow AGENTS.md** repo conventions (tests, commits, DESIGN.md for frontend).
+- **Do NOT push / create PRs / commit unless the card or Seth says so** — Hermes owns
+  git ops (branch, commit, .gitignore, tags, push).
+- **Verify before finishing**: run the card's Verify command (pytest, pnpm test,
+  lint, typecheck) and report real results.
+- **Report back**: end with a short summary — what changed, what you verified, what's
+  left. Hermes tests the result and closes the round.

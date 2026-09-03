@@ -756,6 +756,10 @@ def _is_grok_video_backend(video_backend: str | None) -> bool:
     return _seedance2_model_from_backend(video_backend) == "grok-video-channel"
 
 
+def _is_omni_flash_backend(video_backend: str | None) -> bool:
+    return _seedance2_model_from_backend(video_backend) == "glabs-omni-flash"
+
+
 def _seedance2_api_resolution(resolution: str | None) -> str:
     text = str(resolution or "").strip()
     if text in {"480p", "720p", "1080p"}:
@@ -1405,14 +1409,22 @@ def _seedance2_status_response(
     episode_num: int,
     beat_num: int,
     ctx: dict[str, Any],
+    reference_mode: str | None = None,
 ) -> dict[str, Any]:
+    from novelvideo.seedance2_i2v.models import Seedance2I2VMode
     from novelvideo.seedance2_i2v.panel_service import (
         build_seedance2_video_panel_state,
     )
     from novelvideo.utils.path_resolver import PathResolver
 
     output_dir = Path(ctx["output_dir"])
-    beat = ctx["beat"]
+    beat = dict(ctx["beat"])
+    if reference_mode == "multimodal_reference":
+        from novelvideo.seedance2_i2v.models import dump_seedance2_config, parse_seedance2_config
+
+        config = parse_seedance2_config(beat.get("seedance2_config_json"))
+        config.mode = Seedance2I2VMode.MULTIMODAL_REFERENCE
+        beat["seedance2_config_json"] = dump_seedance2_config(config)
     state = build_seedance2_video_panel_state(
         project_dir=output_dir,
         episode=episode_num,
@@ -1503,6 +1515,7 @@ async def get_seedance2_beat_status(
     project: str,
     episode_num: int,
     beat_num: int,
+    reference_mode: str | None = None,
     user: dict = Depends(get_api_user),
 ):
     """Return NiceGUI-aligned read-only Seedance 2.0 status for one Beat."""
@@ -1517,6 +1530,7 @@ async def get_seedance2_beat_status(
         episode_num=episode_num,
         beat_num=beat_num,
         ctx=ctx,
+        reference_mode=reference_mode,
     )
 
 
@@ -4708,7 +4722,12 @@ async def generate_single_video(
         use_director_render=bool(body.use_director_render),
     )
     # 组件模式（Omni ingredients）：草图+角色参考，不依赖首帧
-    wants_components = body.use_sketch_references or beat.get("video_mode") == "components"
+    is_omni_flash = _is_omni_flash_backend(body.video_backend)
+    wants_components = (
+        body.use_sketch_references
+        or beat.get("video_mode") == "components"
+        or (is_omni_flash and not frame_path.exists())
+    )
     component_references: list[dict[str, str]] = []
     component_ratio: str = ""
     if not wants_components and not frame_path.exists():
@@ -4896,6 +4915,14 @@ async def generate_single_video(
                 component_ratio = str(
                     _pcfg.get("aspect_ratio") or "16:9"
                 ).strip()
+            elif not frame_path.exists():
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Beat {beat_num} 缺少角色肖像或场景参考图，"
+                        "请先在角色/场景资产中生成 portrait 与 scene master"
+                    ),
+                }
         # 非 seedance2 后端（含 seedance-1.5-pro）：透传用户选择的时长/清晰度，
         # 并保证视频时长不短于音频（与 1.0 的 duration_floor 行为一致；
         # 生成器侧再按模型上限 4-12 夹紧并向上取整）。

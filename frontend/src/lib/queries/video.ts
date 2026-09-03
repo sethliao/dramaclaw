@@ -479,14 +479,21 @@ export function useSeedance2BeatStatus(
   episode: number,
   beatNum: number,
   enabled: boolean,
+  options: { referenceMode?: "multimodal_reference" } = {},
 ) {
+  const referenceMode = options.referenceMode;
   return useQuery({
-    queryKey: seedance2BeatStatusKey(project, episode, beatNum),
+    queryKey: [...seedance2BeatStatusKey(project, episode, beatNum), referenceMode ?? ""],
     queryFn: ({ signal }) =>
       api
         .get(
           p`api/v1/projects/${project}/episodes/${episode}/beats/${beatNum}/seedance2-status`,
-          { signal },
+          {
+            signal,
+            ...(referenceMode
+              ? { searchParams: { reference_mode: referenceMode } }
+              : {}),
+          },
         )
         .json<OkResponse<Seedance2BeatStatus> | ErrorResponse>(),
     enabled: enabled && !!project && !!episode && !!beatNum,
@@ -724,6 +731,7 @@ export function useRegenerateBeatVideo(project: string, episode: number) {
       beatNum,
       videoBackend,
       use_director_render,
+      use_sketch_references,
       resolution,
       duration,
       ratio,
@@ -734,6 +742,8 @@ export function useRegenerateBeatVideo(project: string, episode: number) {
       beatNum: number;
       videoBackend?: string;
       use_director_render?: boolean;
+      /** Omni Flash / components mode: character portrait + scene master, no first frame. */
+      use_sketch_references?: boolean;
       // seedance-1.5-pro 等非 seedance2 后端的清晰度/时长（视频时长须 >= 音频，后端兜底）。
       resolution?: string;
       duration?: number;
@@ -749,6 +759,9 @@ export function useRegenerateBeatVideo(project: string, episode: number) {
             json: {
               video_backend: videoBackend ?? DEFAULT_VIDEO_BACKEND,
               use_director_render,
+              ...(use_sketch_references !== undefined
+                ? { use_sketch_references: use_sketch_references }
+                : {}),
               ...(resolution !== undefined ? { resolution } : {}),
               ...(duration !== undefined ? { duration } : {}),
               ...(ratio !== undefined ? { ratio } : {}),
