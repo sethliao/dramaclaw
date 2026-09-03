@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -21,6 +21,7 @@ import {
   MapPinned,
   Package,
   Play,
+  Plus,
   Sparkles,
   Users,
   type LucideIcon,
@@ -30,6 +31,7 @@ import { useCharacters } from "@/lib/queries/characters";
 import {
   derivePipelineEpisodeStatuses,
   isPlanEpisodeAssetsResult,
+  useAppendEpisode,
   useEpisodeDetail,
   useEpisodes,
   usePipelineStatus,
@@ -52,6 +54,14 @@ import {
 } from "@/lib/api-errors";
 import { useGenerationCreditCost } from "@/lib/queries/generation-credit-cost";
 import { HealthBar } from "@/components/episode/health-bar";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   EpisodeActionsSlotProvider,
   useEpisodeActionsSlotActive,
@@ -249,6 +259,7 @@ function TopBar({
   onBack,
   showPlan,
   showReplan,
+  showAppend,
   onPlan,
   planPending,
   planCostDisplay,
@@ -265,6 +276,7 @@ function TopBar({
   onBack: () => void;
   showPlan: boolean;
   showReplan: boolean;
+  showAppend: boolean;
   onPlan: () => void;
   planPending: boolean;
   planCostDisplay?: string | null;
@@ -278,6 +290,8 @@ function TopBar({
   project: string;
 }) {
   const { t } = useTranslation();
+  const [appendOpen, setAppendOpen] = useState(false);
+  const appendMutation = useAppendEpisode(project);
   const episodeNumber = selectedEpisode?.number ?? 0;
   const { data: episodeDetailRes } = useEpisodeDetail(project, episodeNumber);
   const episodeDetail = episodeDetailRes?.data ?? selectedEpisode;
@@ -363,6 +377,17 @@ function TopBar({
             />
           </Button>
         )}
+        {showAppend && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setAppendOpen(true)}
+            className="h-8 gap-1.5 rounded-[8px] px-3 text-xs font-normal shadow-none"
+          >
+            <Plus className="size-3.5" />
+            {t("episode.list.appendEpisode")}
+          </Button>
+        )}
         {showPlan && (
           <Button
             size="sm"
@@ -396,7 +421,85 @@ function TopBar({
           </Button>
         )}
       </div>
+
+      {/* Append Episode dialog */}
+      <AppendEpisodeDialog
+        open={appendOpen}
+        onOpenChange={setAppendOpen}
+        appendMutation={appendMutation}
+        project={project}
+      />
     </div>
+  );
+}
+
+function AppendEpisodeDialog({
+  open,
+  onOpenChange,
+  appendMutation,
+  project,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  appendMutation: ReturnType<typeof useAppendEpisode>;
+  project: string;
+}) {
+  const { t } = useTranslation();
+  const [text, setText] = useState("");
+
+  async function handleSubmit() {
+    if (!text.trim()) return;
+    const res = await appendMutation.mutateAsync(text.trim());
+    if (res.ok === false) {
+      const msg = res.error || "";
+      if (msg.includes("冲突") || msg.toLowerCase().includes("conflict")) {
+        toast.error(t("episode.list.appendEpisodeConflict"));
+      } else {
+        toast.error(t("episode.list.appendEpisodeError", { error: msg }));
+      }
+      return;
+    }
+    toast.success(
+      t("episode.list.appendEpisodeSuccess", { count: res.data?.added?.length ?? 1 }),
+    );
+    setText("");
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("episode.list.appendEpisodeTitle")}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">{t("episode.list.appendEpisodeHint")}</p>
+          <Textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={t("episode.list.appendEpisodePlaceholder")}
+            rows={10}
+            className="min-h-[200px] resize-none font-mono text-sm"
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={appendMutation.isPending}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={!text.trim() || appendMutation.isPending}
+          >
+            {appendMutation.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            {t("episode.list.appendEpisode")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1005,6 +1108,7 @@ export function EpisodesPage() {
       onBack={() => navigate({ to: `/projects/${project}/episodes` })}
       showPlan={!selectedEpisode && displayEpisodes.length === 0}
       showReplan={!selectedEpisode && displayEpisodes.length > 0}
+      showAppend={!selectedEpisode && displayEpisodes.length > 0}
       onPlan={handlePlan}
       planPending={planPending}
       planCostDisplay={planEpisodesCostDisplay}
