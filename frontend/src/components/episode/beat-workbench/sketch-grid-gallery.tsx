@@ -31,10 +31,25 @@ import {
   backendErrorToastMessage,
   BillingRuleNotConfiguredError,
 } from "@/lib/api-errors";
-import { useGenerationCreditCost } from "@/lib/queries/generation-credit-cost";
+import {
+  useGenerationCreditCost,
+  useGenerationCreditCostPlan,
+} from "@/lib/queries/generation-credit-cost";
 import { useTaskController } from "@/hooks/use-task-controller";
+import { useScopedTaskBatchInvalidation } from "@/hooks/use-scoped-task-batch-invalidation";
 import { CreditCostInline } from "@/components/credit-cost-inline";
+import { formatCreditCost } from "@/components/credits/credit-visual";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -80,17 +95,116 @@ export function SketchGridGallery({
     () => buildSketchGridGroups(gridsRes?.data?.images ?? [], beats, aspectRatio),
     [aspectRatio, beats, gridsRes?.data?.images],
   );
+  const generateSketches = useGenerateSketches(project, episode);
+  const [generateAllConfirmOpen, setGenerateAllConfirmOpen] = useState(false);
+  const [generateAllRunning, setGenerateAllRunning] = useState(false);
+  const { track: trackSketchGridTask } = useScopedTaskBatchInvalidation({
+    project,
+    taskType: TASK_TYPES.SKETCH_GRID_GENERATION,
+    invalidateKeys: [
+      queryKeys.grids(project, episode),
+      queryKeys.beats(project, episode),
+      queryKeys.pipelineStatus(project),
+    ],
+  });
+  const allGridsCostPlanItems = useMemo(
+    () => groups.map((group) => ({ modeKey: group.modeKey })),
+    [groups],
+  );
+  const allGridsCost = useGenerationCreditCostPlan(
+    "feature",
+    "mainline.sketch_regen",
+    allGridsCostPlanItems,
+    {
+      surface: "supertale",
+      imageRole: "sketch",
+      params: imageGenerationSelection
+        ? { image_selection: imageGenerationSelection }
+        : null,
+    },
+  );
+  const allGridsCostDisplay = useMemo(() => {
+    if (typeof allGridsCost.cost !== "number") {
+      return allGridsCost.error instanceof BillingRuleNotConfiguredError
+        ? t("common.billingRuleNotConfiguredShort")
+        : null;
+    }
+    if (
+      typeof allGridsCost.originalCost === "number"
+      && allGridsCost.originalCost > allGridsCost.cost
+    ) {
+      return `${formatCreditCost(allGridsCost.originalCost)}→${formatCreditCost(
+        allGridsCost.cost,
+      )}`;
+    }
+    return formatCreditCost(allGridsCost.cost);
+  }, [allGridsCost.cost, allGridsCost.error, allGridsCost.originalCost, t]);
+
+  const handleGenerateAll = async () => {
+    if (groups.length === 0) return;
+    setGenerateAllRunning(true);
+    try {
+      const res = await generateSketches.mutateAsync({
+        grid_index: -1,
+        sketch_scene_grouping: true,
+        aspect_ratio: aspectRatio,
+        ...(imageGenerationSelection
+          ? { image_generation_selection: imageGenerationSelection }
+          : {}),
+      });
+      if (res.ok === false) {
+        toast.error(backendErrorToastMessage(res.error, t));
+        return;
+      }
+      const scopes =
+        "data" in res && res.data && Array.isArray(res.data.scopes)
+          ? res.data.scopes
+          : [];
+      for (const scope of scopes) {
+        trackSketchGridTask(scope);
+      }
+      toast.success(
+        t("episode.workbench.sketchGrid.generateAllStarted", {
+          count: scopes.length || groups.length,
+        }),
+      );
+      setGenerateAllConfirmOpen(false);
+    } catch (error) {
+      toast.error(backendErrorToastMessage(error, t));
+    } finally {
+      setGenerateAllRunning(false);
+    }
+  };
 
   if (groups.length === 0) return null;
 
   return (
     <section className="flex h-full min-h-0 w-full flex-col bg-background/50 px-4 py-3">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-xs font-semibold text-muted-foreground">
           {t("episode.workbench.sketchGrid.titleWithCount", {
             count: groups.length,
           })}
         </h2>
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          onClick={() => setGenerateAllConfirmOpen(true)}
+          disabled={generateSketches.isPending || generateAllRunning}
+          className="gap-1 rounded-[5px] border-white/[0.13] bg-white/[0.018] px-2 text-xs shadow-none hover:bg-white/[0.035]"
+        >
+          {generateSketches.isPending || generateAllRunning ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <RefreshCw className="size-3" />
+          )}
+          {t("episode.workbench.sketchGrid.generateAll")}
+          <CreditCostInline
+            display={allGridsCostDisplay}
+            promotion={allGridsCost.promotion}
+          />
+        </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
@@ -106,6 +220,30 @@ export function SketchGridGallery({
           ))}
         </div>
       </div>
+      <AlertDialog open={generateAllConfirmOpen} onOpenChange={setGenerateAllConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("episode.workbench.sketchGrid.generateAllTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("episode.workbench.sketchGrid.generateAllDesc", {
+                count: groups.length,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleGenerateAll()}
+              disabled={generateSketches.isPending || generateAllRunning}
+            >
+              {t("common.confirm")}
+              {allGridsCostDisplay ? ` (${allGridsCostDisplay})` : ""}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

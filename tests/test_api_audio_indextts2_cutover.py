@@ -983,6 +983,62 @@ async def test_seedance2_single_video_rejects_empty_final_prompt(monkeypatch, tm
 
 
 @pytest.mark.asyncio
+async def test_omni_flash_single_video_uses_component_references_without_first_frame(
+    monkeypatch, tmp_path
+):
+    from novelvideo.api.routes import generation
+    from novelvideo.api.schemas import SingleVideoRequest
+
+    calls = []
+    store = _FakeSeedance2Store(
+        [
+            {
+                "beat_number": 2,
+                "video_mode": "first_frame",
+                "video_prompt": "镜头从角色正面缓慢推近。",
+                "detected_identities": ["陆辰_青年时期"],
+                "scene_ref": {"scene_id": "Forest"},
+            }
+        ]
+    )
+    portrait = tmp_path / "assets" / "characters" / "陆辰" / "portrait.png"
+    portrait.parent.mkdir(parents=True, exist_ok=True)
+    portrait.write_bytes(b"portrait")
+    scene_master = tmp_path / "assets" / "scenes" / "Forest" / "master.png"
+    scene_master.parent.mkdir(parents=True, exist_ok=True)
+    scene_master.write_bytes(b"scene")
+
+    async def fake_audio_duration(*_args, **_kwargs):
+        return 0.0
+
+    _patch_generation_celery(monkeypatch, generation, tmp_path, store)
+    monkeypatch.setattr(
+        generation,
+        "get_task_backend",
+        lambda: SimpleNamespace(enqueue_project_task=_fake_enqueue(calls)),
+    )
+    monkeypatch.setattr(generation, "_api_audio_duration_seconds", fake_audio_duration)
+
+    response = await generation.generate_single_video(
+        project="demo",
+        episode_num=3,
+        beat_num=2,
+        body=SingleVideoRequest(
+            video_backend="newapi_glabs-omni-flash",
+            use_sketch_references=True,
+        ),
+        user={"username": "alice"},
+    )
+
+    assert response["ok"] is True
+    config = calls[0]["payload"]["config"]
+    assert config["frame_path"] is None
+    assert config["video_mode"] == "components"
+    assert len(config["references"]) >= 2
+    assert config["prompt"] == "镜头从角色正面缓慢推近。"
+
+
+@pytest.mark.asyncio
 async def test_legacy_tts_generate_endpoint_is_gone():
     from novelvideo.api.routes import generation
     from novelvideo.api.schemas import TTSGenerateRequest

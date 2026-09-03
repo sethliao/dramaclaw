@@ -24,6 +24,8 @@ beforeAll(async () => {
             download: "下载",
             regenerate: "重新生成",
             stop: "停止",
+            confirm: "确认",
+            cancel: "取消",
             billingRuleNotConfiguredShort: "需配置",
           },
           episode: {
@@ -36,6 +38,10 @@ beforeAll(async () => {
                 cellCount: "{{count}} 格",
                 noPreview: "无预览",
                 generateGrid: "生成/重生",
+                generateAll: "一键生成全部草图",
+                generateAllTitle: "生成全部草图网格？",
+                generateAllDesc: "将为本集重新生成全部草图网格（共 {{count}} 个）",
+                generateAllStarted: "已启动 {{count}} 个草图网格生成",
                 regenStarted: "Grid #{{n}} 已启动",
                 regenFailed: "Grid 生成失败",
                 cut: "切割入池",
@@ -64,6 +70,7 @@ const uploadGridMock: Mock = vi.fn();
 const exportGridPromptMock: Mock = vi.fn();
 const taskStartMock: Mock = vi.fn();
 const taskStopMock: Mock = vi.fn();
+const trackSketchGridTaskMock: Mock = vi.fn();
 let gridImages: unknown[] = [];
 let sketchPreviewResponses: Record<number, unknown> = {};
 
@@ -117,9 +124,21 @@ vi.mock("@/hooks/use-task-controller", () => ({
   }),
 }));
 
+vi.mock("@/hooks/use-scoped-task-batch-invalidation", () => ({
+  useScopedTaskBatchInvalidation: () => ({
+    track: trackSketchGridTaskMock,
+  }),
+}));
+
 vi.mock("@/lib/queries/generation-credit-cost", () => ({
   useGenerationCreditCost: () => ({
     data: { data: { display: "6" } },
+    error: null,
+  }),
+  useGenerationCreditCostPlan: () => ({
+    cost: 12,
+    originalCost: undefined,
+    promotion: undefined,
     error: null,
   }),
 }));
@@ -182,6 +201,7 @@ beforeEach(() => {
   });
   taskStartMock.mockReset();
   taskStopMock.mockReset();
+  trackSketchGridTaskMock.mockReset();
 });
 
 describe("SketchGridGallery", () => {
@@ -573,6 +593,43 @@ describe("SketchGridGallery", () => {
 
     expect(screen.getByText(/B7-8,18-19/)).toBeInTheDocument();
     expect(screen.queryByText(/B7-19/)).not.toBeInTheDocument();
+  });
+
+  it("dispatches full-episode sketch generation with grid_index -1", async () => {
+    gridImages = [];
+    generateSketchesMock.mockResolvedValueOnce({
+      ok: true,
+      task_type: "sketch_grid_generation",
+      data: {
+        dispatched: 2,
+        scopes: ["grid_0", "grid_1"],
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <I18nextProvider i18n={i18n}>
+        <SketchGridGallery
+          project="demo"
+          episode={1}
+          beats={[
+            { beat_number: 1, narration_segment: "", visual_description: "v", scene_ref: { scene_id: "A" } } as Beat,
+            { beat_number: 2, narration_segment: "", visual_description: "v", scene_ref: { scene_id: "B" } } as Beat,
+            { beat_number: 3, narration_segment: "", visual_description: "v", scene_ref: { scene_id: "C" } } as Beat,
+          ]}
+        />
+      </I18nextProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /一键生成全部草图/ }));
+    await user.click(screen.getByRole("button", { name: /确认/ }));
+
+    expect(generateSketchesMock).toHaveBeenCalledWith({
+      grid_index: -1,
+      sketch_scene_grouping: true,
+      aspect_ratio: "2:3",
+    });
+    expect(trackSketchGridTaskMock).toHaveBeenCalledWith("grid_0");
+    expect(trackSketchGridTaskMock).toHaveBeenCalledWith("grid_1");
   });
 
   it("omits manual sketch grid cutting because generation already splits sketches", async () => {

@@ -1,0 +1,29 @@
+---
+description: How to update this repo when upstream (dramaclaw/dramaclaw) updates, keeping local patches without dumping huge git output.
+globs: []
+alwaysApply: true
+---
+
+# Upstream Update — Token-Light Rebase
+
+When asked to update this repo from upstream (dramaclaw/dramaclaw) **and local patches exist**:
+
+## Rules
+
+1. **Always `fetch` + `rebase`, never `merge`** — rebase replays local patches on top of upstream.
+   ```bash
+   git fetch upstream --quiet || git remote add upstream https://github.com/dramaclaw/dramaclaw && git fetch upstream --quiet
+   git rebase upstream/main
+   ```
+2. **Never dump git output into chat.** Redirect to a file, then read only the summary:
+   ```bash
+   git rebase upstream/main > /tmp/rb.log 2>&1
+   grep -c CONFLICT /tmp/rb.log   # how many conflicts
+   grep -n '^UU' /tmp/rb.log      # only conflicting files
+   ```
+3. **Working tree must be clean first.** If `git status --short` shows changes: `git stash push -m "wip"` (or commit) before rebasing.
+4. **Resolve conflicts manually**, then `git add <files> && git rebase --continue`.
+5. **To bail out**: `git rebase --abort`.
+
+## Why
+A plain `git merge upstream/main` prints a 200+ file listing that stays in context and burns tokens. Redirect + summarize instead.
