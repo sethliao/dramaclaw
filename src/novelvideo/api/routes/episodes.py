@@ -20,7 +20,7 @@ from novelvideo.api.deps import (
     sqlite_store_for_context_scope,
     sqlite_store_scope,
 )
-from novelvideo.api.schemas import EpisodePlanRequest, EpisodeUpdate, InsertManualShotRequest
+from novelvideo.api.schemas import EpisodeAppendRequest, EpisodePlanRequest, EpisodeUpdate, InsertManualShotRequest
 from novelvideo.novel_source import (
     has_imported_novel,
     novel_import_required_response,
@@ -338,6 +338,63 @@ async def plan_episodes(project: str, body: EpisodePlanRequest, user: dict = Dep
         }
 
     return {"ok": False, "error": "分集规划需要 project context"}
+
+
+@router.post("/projects/{project}/episodes/append")
+async def append_episode(
+    project: str,
+    body: EpisodeAppendRequest,
+    user: dict = Depends(get_api_user),
+):
+    """追加新集：追加文本到 novel.txt 并解析写入 SQLite。"""
+    logger.info("[%s] append_episode", project)
+    resolved = await resolve_project_scope(project, user, required_role="editor")
+
+    if not has_imported_novel(resolved.project_dir):
+        return novel_import_required_response()
+
+    # 1. 追加文本到 durable novel.txt
+    novel_path = resolved.project_dir / "novel.txt"
+    existing = novel_path.read_text() if novel_path.exists() else ""
+    if existing and not existing.endswith("\n"):
+        existing += "\n"
+    # 用分隔线区分追加内容
+    appended = f"{existing}\n\n---\n\n{body.text}"
+
+    project_dir_for_novel = resolved.project_dir
+    # 确保目录存在
+    project_dir_for_novel.mkdir(parents=True, exist_ok=True)
+    (project_dir_for_novel / "novel.txt").write_text(appended)
+
+    # 2. 用 store 解析追加文本并写入
+    store = (
+        await make_cognee_store_for_context(resolved.ctx)
+        if resolved.ctx
+        else await make_cognee_store(resolved.username, resolved.project_name)
+    )
+    await store.load_graph_state()
+
+    # 查现有集号用于冲突检测
+    existing_episodes = store.get_all_episodes()
+    existing_numbers = {ep.number for ep in existing_episodes}
+
+    # 3. 追加新集（内部做冲突检测）
+    try:
+        new_episodes = await store.append_new_episodes(body.text)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+    # 4. 返回新集列表 + 更新后的全量列表
+    all_episodes = store.get_all_episodes() if hasattr(store, "get_all_episodes") else []
+    episodes_data = [_episode_detail_payload(ep, ep.number) for ep in all_episodes]
+
+    return {
+        "ok": True,
+        "data": {
+            "added": [_episode_detail_payload(ep, ep.number) for ep in new_episodes],
+            "episodes": episodes_data,
+        },
+    }
 
 
 @router.get("/projects/{project}/episodes/{episode_num}")

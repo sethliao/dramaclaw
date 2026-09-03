@@ -143,6 +143,10 @@ class EpisodePlanRequest(BaseModel):
     planning_mode: str = "chapters"
 
 
+class EpisodeAppendRequest(BaseModel):
+    text: str  # 新集文本，可带章节标记（如 "## Episode 5：春节\n场景：...\nMomo: ..."）
+
+
 # ── 剧本 ──────────────────────────────────────────────────────────────────────
 
 

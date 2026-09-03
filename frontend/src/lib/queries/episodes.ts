@@ -394,3 +394,26 @@ export function useDeleteManualShot(project: string, episode: number) {
     },
   });
 }
+
+/** Append new episode text to an existing project. */
+export interface AppendEpisodeResult {
+  added: Episode[];
+  episodes: Episode[];
+}
+
+export function useAppendEpisode(project: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (text: string) =>
+      jsonWithBackendError<ApiResponse<AppendEpisodeResult>>(
+        api.post(p`api/v1/projects/${project}/episodes/append`, {
+          json: { text },
+          throwHttpErrors: false,
+        }),
+      ),
+    onSuccess: (res) => {
+      if (res.ok === false) return;
+      queryClient.invalidateQueries({ queryKey: queryKeys.episodes(project) });
+    },
+  });
+}

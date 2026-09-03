@@ -1310,6 +1310,75 @@ class CogneeStore:
         await self.sqlite_store.add_episodes(episodes)
         self._sync_sqlite_caches()
 
+    async def append_new_episodes(self, text: str) -> List[NovelEpisode]:
+        """追加新集：解析文本中的章节标记，分配集号，写入 SQLite。
+
+        Args:
+            text: 追加的文本，可含章节标记（如 "## Episode 5：春节\n场景：...\nMomo: ..."）
+
+        Returns:
+            新增的 NovelEpisode 列表
+
+        Raises:
+            ValueError: 文本中解析出的集号与已有集冲突
+        """
+        from novelvideo.cognee.chapter_detector import ChapterDetector, ChapterInfo
+
+        # 1. 解析新章节
+        detector = ChapterDetector()
+        chapters = detector.detect(text)
+        if not chapters:
+            # 无章节标记 → 视为一整集
+            chapters = [
+                ChapterInfo(
+                    number=1,
+                    title=None,
+                    start_line=0,
+                    end_line=len(text.splitlines()),
+                    content=text,
+                    is_fallback=True,
+                )
+            ]
+
+        # 2. 查现有集号
+        existing = {ep.number for ep in self.sqlite_store.get_all_episodes()}
+        max_existing = max(existing) if existing else 0
+
+        # 3. 分配集号：章节解析结果 > 自动续号
+        new_episodes: List[NovelEpisode] = []
+        for i, chapter in enumerate(chapters):
+            if chapter.is_fallback:
+                # 没有章节标记，自动分配
+                ep_num = max_existing + 1
+            else:
+                ep_num = chapter.number
+
+            # 冲突检测（端点层兜底，这里只记录）
+            if ep_num in existing:
+                raise ValueError(
+                    f"追加文本中的集号 {ep_num} 与已有集冲突。"
+                    f"请使用新的集号，或手动指定。",
+                )
+
+            # 标题：从首行或内容回退
+            first_line = chapter.content.splitlines()[0].strip() if chapter.content else ""
+            title = first_line or f"第{ep_num}集"
+
+            episode = NovelEpisode(
+                number=ep_num,
+                title=title,
+                chapter_start=ep_num,
+                chapter_end=ep_num,
+                raw_content=chapter.content,
+                beat_source_text=chapter.content,
+                content_summary=chapter.content[:200].strip() if chapter.content else "",
+            )
+            new_episodes.append(episode)
+
+        # 4. 写入（upsert 语义，不动旧集）
+        await self.add_episodes(new_episodes)
+        return new_episodes
+
     async def replace_episodes(self, episodes: List[NovelEpisode]) -> None:
         """Replace planned episodes in SQLite without writing them to Cognee."""
         await self.sqlite_store.replace_episodes(episodes)
